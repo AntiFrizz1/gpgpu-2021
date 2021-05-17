@@ -6,6 +6,9 @@
 
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <cooperative_groups.h>
+
+using namespace cooperative_groups;
 
 #define N_A 1000
 #define M_A 1000
@@ -16,14 +19,19 @@
 #define VALUES_MIN -1000.0
 #define VALUES_MAX 1000.0
 
-int const BLOCK_COUNT = (N_A - 1) / N_BLOCK + 1;
+constexpr int BLOCK_COUNT = (N_A - 1) / N_BLOCK + 1;
 
 __global__ void matrix_mul_on_gpu_shared_kernel(double* a, double* b, double* out)
 {
-    int bx = blockIdx.x;
-    int by = blockIdx.y;
-    int tx = threadIdx.x;
-    int ty = threadIdx.y;
+    thread_block block = this_thread_block();
+    
+    dim3 block_group_index = block.group_index();
+    dim3 block_thread_index = block.thread_index();
+
+    int bx = block_group_index.x;
+    int by = block_group_index.y;
+    int tx = block_thread_index.x;
+    int ty = block_thread_index.y;
     int j = bx * N_BLOCK + tx;
     int i = by * N_BLOCK + ty;
 
@@ -34,24 +42,24 @@ __global__ void matrix_mul_on_gpu_shared_kernel(double* a, double* b, double* ou
     __shared__ double a_shared[N_BLOCK][N_BLOCK];
     __shared__ double b_shared[N_BLOCK][N_BLOCK];
 
-    for (int block_ind = 0; block_ind < BLOCK_COUNT; ++block_ind)
+    for (int block_ind = 0; block_ind * N_BLOCK < N_A; ++block_ind)
     {
         int global_a_ind = cur_global_block_row + ty * M_B + tx;
         int global_b_ind = cur_global_block_column + ty * M_B + tx;
-        int cur_j = (block_ind)*N_BLOCK + tx;
-        int cur_i = (block_ind)*N_BLOCK + ty;
+        int cur_j = (block_ind) * N_BLOCK + tx;
+        int cur_i = (block_ind) * N_BLOCK + ty;
 
-        a_shared[ty][tx] = (cur_j < M_B&& i < N_A) ? a[global_a_ind] : 0.0f;
-        b_shared[ty][tx] = (cur_i < N_A&& j < M_B) ? b[global_b_ind] : 0.0f;
+        a_shared[ty][tx] = (cur_j < M_B && i < N_A) ? a[global_a_ind] : 0.0f;
+        b_shared[ty][tx] = (cur_i < N_A && j < M_B) ? b[global_b_ind] : 0.0f;
 
-        __syncthreads();
+        block.sync();
 
         for (int k = 0; (k < N_BLOCK); ++k)
         {
             sum += a_shared[ty][k] * b_shared[k][tx];
         }
 
-        __syncthreads();
+        block.sync();
 
         cur_global_block_row += N_BLOCK;
         cur_global_block_column += M_B * N_BLOCK;
