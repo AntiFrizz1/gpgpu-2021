@@ -6,19 +6,23 @@
 
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <cooperative_groups.h>
+
+using namespace cooperative_groups;
 
 #define N_A 1000
 #define M_A 1000
 #define N_B 1000
 #define M_B 1000
 #define EPS 1e-6
-#define VALUES_MIN -10000.0
-#define VALUES_MAX 10000.0
+#define VALUES_MIN -1000.0
+#define VALUES_MAX 1000.0
 #define BLOCK_SIZE 256
 
 __global__ void matrix_mul__on_gpu_kernel(double* a, double* b, double* out)
 {
-    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    thread_block block = this_thread_block();
+    int idx = block.thread_index().x + block.group_index().x * block.group_dim().x;
     if (idx >= N_A * M_B)
     {
         return;
